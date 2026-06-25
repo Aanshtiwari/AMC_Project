@@ -1,0 +1,28 @@
+{
+  "name": "fireguard-amc-manager",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "db:setup": "node scripts/local-postgres.js setup",
+    "db:start": "node scripts/local-postgres.js start",
+    "db:stop": "node scripts/local-postgres.js stop",
+    "db:list": "node scripts/local-postgres.js list",
+    "db:view": "node scripts/local-postgres.js view",
+    "server": "node --watch server/index.js",
+    "start": "node server/index.js",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "lucide-react": "^1.20.0",
+    "pg": "^8.13.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "vite": "^6.0.5"
+  }
+}
