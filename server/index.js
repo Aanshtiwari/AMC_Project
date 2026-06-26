@@ -108,6 +108,24 @@ app.post("/api/users", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+app.put("/api/users/:id", async (req, res, next) => {
+  try {
+    if (req.body.role && req.body.role !== "Employer") {
+      return res.status(400).json({ error: "Only Employer users can be updated here." });
+    }
+    if (!req.body.name || !req.body.email || !req.body.password) {
+      return res.status(400).json({ error: "Name, email, and password are required." });
+    }
+    const result = await pool.query(
+      `UPDATE app_users SET name=$1, email=$2, password=$3, initials=$4, phone=$5, status=$6
+       WHERE id=$7 AND role='Employer' RETURNING *`,
+      [req.body.name, req.body.email, req.body.password, req.body.initials || initialsFor(req.body.name), req.body.phone || "", req.body.status || "Active", req.params.id],
+    );
+    if (!result.rowCount) return res.status(404).json({ error: "Employer not found or cannot be updated." });
+    res.json(mapUser(result.rows[0]));
+  } catch (error) { next(error); }
+});
+
 app.delete("/api/users/:id", async (req, res, next) => {
   try {
     const result = await pool.query("DELETE FROM app_users WHERE id=$1 AND role='Employer'", [req.params.id]);

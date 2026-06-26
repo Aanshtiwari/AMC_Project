@@ -24,6 +24,7 @@ export const api = {
   createVisit: (visit) => request("/visits", { method: "POST", body: JSON.stringify(visit) }),
   updateVisit: (visit) => request(`/visits/${visit.id}`, { method: "PUT", body: JSON.stringify(visit) }),
   createUser: (user) => request("/users", { method: "POST", body: JSON.stringify(user) }),
+  updateUser: (user) => request(`/users/${user.id}`, { method: "PUT", body: JSON.stringify(user) }),
   deleteUser: (id) => request(`/users/${id}`, { method: "DELETE" }),
   setRole: (role) => request("/settings/role", { method: "PUT", body: JSON.stringify({ role }) }),
   restore: (backup) => request("/restore", { method: "POST", body: JSON.stringify(backup) }),

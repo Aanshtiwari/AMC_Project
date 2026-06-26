@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
 import {
-  Bell, CalendarDays, CheckCircle2, ClipboardCheck, Download, Edit3, FileJson,
-  Gauge, LayoutDashboard, LogIn, LogOut, Menu, Plus, Search, Settings,
-  ShieldCheck, Trash2, Upload, UserRound, Users, Wrench, X
+  Bell, CalendarDays, CheckCircle2, ClipboardCheck, Download, Edit3, Eye, FileJson,
+  Gauge, LayoutDashboard, LogIn, LogOut, Menu, Moon, Plus, Search, Settings,
+  ShieldCheck, Sun, Trash2, Upload, UserRound, Users, Wrench, X
 } from "lucide-react";
 import { pageMeta } from "./data";
 import { api } from "./api";
@@ -53,8 +53,11 @@ const demoUsers = [
 
 function App() {
   const [currentUser, setCurrentUser] = useState(() => {
-    try { return JSON.parse(localStorage.getItem("fireguard-user")) || null; }
-    catch { return null; }
+    try {
+      return JSON.parse(localStorage.getItem("fireguard-user")) || JSON.parse(sessionStorage.getItem("fireguard-user")) || null;
+    } catch {
+      return null;
+    }
   });
   const [page, setPage] = useState(currentUser?.role === "Customer" ? "customerDashboard" : "dashboard");
   const [subPage, setSubPage] = useState(null);
@@ -65,6 +68,14 @@ function App() {
   const [services, setServices] = useState([]);
   const [visits, setVisits] = useState([]);
   const [users, setUsers] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [theme, setTheme] = useState(() => {
+    if (typeof window === "undefined") return "light";
+    const saved = localStorage.getItem("fireguard-theme");
+    if (saved === "dark" || saved === "light") return saved;
+    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+  });
+  const [showNotifications, setShowNotifications] = useState(false);
   const [loading, setLoading] = useState(true);
   const [databaseError, setDatabaseError] = useState("");
   const role = currentUser?.role || "";
@@ -87,12 +98,19 @@ function App() {
   }, []);
 
   useEffect(() => {
+    document.body.dataset.theme = theme;
+    localStorage.setItem("fireguard-theme", theme);
+  }, [theme]);
+
+  useEffect(() => {
     if (!currentUser) return;
     if (!allowedNavFor(currentUser).includes(page)) {
       setPage(defaultPageFor(currentUser));
       closeSub();
     }
   }, [currentUser, page]);
+
+  const toggleTheme = () => setTheme((current) => current === "dark" ? "light" : "dark");
 
   const runDatabaseAction = async (action) => {
     try {
@@ -105,7 +123,7 @@ function App() {
     }
   };
 
-  const login = ({ email, password, role: selectedRole }) => {
+  const login = ({ email, password, role: selectedRole, rememberMe }) => {
     const cleanEmail = email.trim().toLowerCase();
     const authUsers = users.length ? users : demoUsers.filter((item) => item.role !== "Customer");
     const user = selectedRole === "Customer"
@@ -122,13 +140,20 @@ function App() {
     const sessionUser = { ...user };
     delete sessionUser.password;
     setCurrentUser(sessionUser);
-    localStorage.setItem("fireguard-user", JSON.stringify(sessionUser));
+    if (rememberMe) {
+      localStorage.setItem("fireguard-user", JSON.stringify(sessionUser));
+      sessionStorage.removeItem("fireguard-user");
+    } else {
+      sessionStorage.setItem("fireguard-user", JSON.stringify(sessionUser));
+      localStorage.removeItem("fireguard-user");
+    }
     navigate(defaultPageFor(sessionUser), sessionUser);
     return "";
   };
 
   const logout = () => {
     localStorage.removeItem("fireguard-user");
+    sessionStorage.removeItem("fireguard-user");
     setCurrentUser(null);
     setPage("dashboard");
     closeSub();
@@ -137,6 +162,24 @@ function App() {
   const canEdit = access.canEdit;
   const openSub = (next, item = null) => { setSubPage(next); setSelected(item); };
   const closeSub = () => { setSubPage(null); setSelected(null); };
+  const handleSupportAction = (type, clientName) => {
+    const title = type === "service" ? "Service request pending" : "Support request pending";
+    const text = type === "service"
+      ? `A new service request was submitted for ${clientName}.`
+      : `A new support request was submitted for ${clientName}.`;
+    const nextNotification = { id: Date.now(), title, text, type, clientName, status: "pending", time: "Now" };
+    setNotifications((current) => [nextNotification, ...current].slice(0, 10));
+    setShowNotifications(true);
+  };
+
+  const respondToNotification = (id, decision) => {
+    setNotifications((current) => current.filter((item) => item.id !== id));
+    if (decision === "accept") {
+      window.alert("Request accepted and marked for follow-up.");
+    } else {
+      window.alert("Request rejected and closed.");
+    }
+  };
   const navigate = (next, user = currentUser) => {
     const allowedNav = allowedNavFor(user);
     const fallback = defaultPageFor(user);
@@ -182,9 +225,13 @@ function App() {
 
   const saveEmployer = async (employer) => {
     if (role !== "Admin") return;
-    const saved = await runDatabaseAction(() => api.createUser({ ...employer, role: "Employer" }));
+    const saved = await runDatabaseAction(() => employer.id
+      ? api.updateUser(employer)
+      : api.createUser({ ...employer, role: "Employer" }));
     if (!saved) return;
-    setUsers((current) => [...current, saved]);
+    setUsers((current) => employer.id
+      ? current.map((item) => item.id === saved.id ? saved : item)
+      : [...current, saved]);
     closeSub();
   };
 
@@ -193,6 +240,14 @@ function App() {
     const deleted = await runDatabaseAction(() => api.deleteUser(employer.id));
     if (!deleted) return;
     setUsers((current) => current.filter((item) => item.id !== employer.id));
+  };
+
+  const editEmployer = (employer) => {
+    openSub("editEmployer", employer);
+  };
+
+  const viewEmployerCredentials = (employer) => {
+    window.alert(`Employer ID: ${employer.id}\nEmail: ${employer.email}\nPassword: ${employer.password}`);
   };
 
   const deleteService = async (service) => {
@@ -244,7 +299,7 @@ function App() {
     ? services.filter((service) => visibleClients.some((client) => (client.services?.length ? client.services : [client.service]).includes(service.name)))
     : services;
 
-  if (!currentUser) return <LoginPage loading={loading} databaseError={databaseError} onLogin={login} />;
+  if (!currentUser) return <LoginPage loading={loading} databaseError={databaseError} onLogin={login} theme={theme} toggleTheme={toggleTheme} />;
 
   const title = subPage ? subTitles[subPage] : pageMeta[page]?.[0] || pageMeta[defaultPageFor(currentUser)][0];
   const subtitle = subPage ? "Review report, save engineer notes, and download PDF" : pageMeta[page]?.[1] || pageMeta[defaultPageFor(currentUser)][1];
@@ -259,7 +314,25 @@ function App() {
         <div className="top-actions">
           {role !== "Customer" && <label className="global-search"><Search size={17} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search records" /></label>}
           <span className="role-pill"><ShieldCheck size={15} /> {role}</span>
-          <button className="icon-button" title="Alerts"><Bell /></button>
+          <button className="icon-button" title={`Switch to ${theme === "dark" ? "light" : "dark"} mode`} onClick={toggleTheme}>{theme === "dark" ? <Sun size={18} /> : <Moon size={18} />}</button>
+          <div className="notification-wrap">
+            <button className="icon-button" title="Notifications" onClick={() => setShowNotifications((value) => !value)}><Bell /></button>
+            {notifications.length > 0 && <span className="notification-badge">{notifications.length}</span>}
+            {showNotifications && <div className="notifications-panel">
+              <div className="notifications-head"><strong>Notifications</strong><span>{notifications.length} pending</span></div>
+              <div className="notifications-list">
+                {notifications.length ? notifications.map((item) => <div key={item.id} className="notification-item">
+                  <strong>{item.title}</strong>
+                  <p>{item.text}</p>
+                  <span>{item.time}</span>
+                  {role === "Admin" && <div className="notification-actions">
+                    <button className="outline small-btn" onClick={() => respondToNotification(item.id, "accept")}>Accept</button>
+                    <button className="outline small-btn" onClick={() => respondToNotification(item.id, "reject")}>Reject</button>
+                  </div>}
+                </div>) : <div className="notification-empty">No pending requests.</div>}
+              </div>
+            </div>}
+          </div>
           <button className="icon-button" title="Logout" onClick={logout}><LogOut /></button>
           <div className="avatar">{currentUser.initials}</div>
         </div>
@@ -274,14 +347,15 @@ function App() {
         {subPage === "addService" && <ServiceForm services={services} onCancel={closeSub} onSave={saveService} />}
         {subPage === "editService" && <ServiceForm service={selected} services={services} onCancel={closeSub} onSave={saveService} />}
         {subPage === "addEmployer" && <EmployerForm users={users} onCancel={closeSub} onSave={saveEmployer} />}
+        {subPage === "editEmployer" && <EmployerForm employer={selected} users={users} onCancel={closeSub} onSave={saveEmployer} />}
         {subPage === "amcReview" && <AMCReview client={selected?.client || selected} report={selected?.visit || null} visits={visits} canEdit={canEdit} onBack={closeSub} onSave={completeVisit} />}
         {!subPage && page === "dashboard" && <Dashboard clients={visibleClients} services={visibleServices} visits={visibleVisits} navigate={navigate} openReview={(item) => openSub("amcReview", { client: item, visit: null })} role={role} user={currentUser} />}
-        {!subPage && page === "customerDashboard" && <CustomerDashboard client={visibleClients[0]} services={visibleServices} visits={visibleVisits} onReport={(client, visit) => openSub("amcReview", { client, visit })} />}
+        {!subPage && page === "customerDashboard" && <CustomerDashboard client={visibleClients[0]} services={visibleServices} visits={visibleVisits} onReport={(client, visit) => openSub("amcReview", { client, visit })} onSupportAction={handleSupportAction} />}
         {!subPage && page === "clients" && <ClientsPage clients={visibleClients} visits={visibleVisits} query={query} canEdit={canEdit} onAdd={() => openSub("addClient")} onView={(item) => openSub("clientProfile", item)} onEdit={(item) => openSub("editClient", item)} onDelete={deleteClient} />}
         {!subPage && page === "services" && <ServicesPage services={visibleServices} clients={visibleClients} query={query} canEdit={canEdit} onAdd={() => openSub("addService")} onEdit={(item) => openSub("editService", item)} onDelete={deleteService} />}
         {!subPage && page === "amc" && <AMCPage clients={visibleClients} query={query} services={visibleServices} onReview={(item) => openSub("amcReview", { client: item, visit: null })} />}
         {!subPage && page === "calendar" && <CalendarPage clients={visibleClients} visits={visibleVisits} query={query} services={visibleServices} setQuery={setQuery} onReview={(item, visit = null) => openSub("amcReview", { client: item, visit })} />}
-        {!subPage && page === "employers" && role === "Admin" && <EmployersPage users={users} visits={visits} onAdd={() => openSub("addEmployer")} onDelete={deleteEmployer} />}
+        {!subPage && page === "employers" && role === "Admin" && <EmployersPage users={users} visits={visits} onAdd={() => openSub("addEmployer")} onEdit={editEmployer} onViewCredentials={viewEmployerCredentials} onDelete={deleteEmployer} />}
         {!subPage && page === "settings" && access.canBackup && <SettingsPage clients={clients} services={services} visits={visits} users={users} role={role} onRestore={restoreBackup} />}
       </div>
     </main>
@@ -290,45 +364,77 @@ function App() {
 
 const subTitles = {
   addClient: "Add Client", editClient: "Edit Client", clientProfile: "Client Profile",
-  addService: "Add Service", editService: "Edit Service", addEmployer: "Add Employer", amcReview: "AMC Service Review",
+  addService: "Add Service", editService: "Edit Service", addEmployer: "Add Employer", editEmployer: "Edit Employer", amcReview: "AMC Service Review",
 };
 
-function LoginPage({ loading, databaseError, onLogin }) {
-  const [form, setForm] = useState({ role: "Admin", email: "admin@fireguard.local", password: "admin123" });
+function LoginPage({ loading, databaseError, onLogin, theme, toggleTheme }) {
+  const [form, setForm] = useState({ role: "Admin", email: "", password: "", rememberMe: false, showPassword: false });
   const [error, setError] = useState("");
-  const chooseRole = (role) => {
-    const user = demoUsers.find((item) => item.role === role);
-    setForm({ role, email: user.email, password: user.password });
-    setError("");
+  const [fieldErrors, setFieldErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+  const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
+  const validateForm = () => {
+    const nextErrors = {};
+    const emailValue = form.email.trim();
+    if (!emailValue) nextErrors.email = "Enter your email address.";
+    else if (!/^\S+@\S+\.\S+$/.test(emailValue)) nextErrors.email = "Enter a valid email address.";
+    if (!form.password) nextErrors.password = "Enter your password.";
+    setFieldErrors(nextErrors);
+    return Object.keys(nextErrors).length === 0;
   };
-  const submit = (event) => {
+  const submit = async (event) => {
     event.preventDefault();
-    setError(onLogin(form));
+    setError("");
+    if (!validateForm()) return;
+    setSubmitting(true);
+    const result = await onLogin(form);
+    setSubmitting(false);
+    if (result) setError(result);
   };
+  const toggleShowPassword = () => updateField("showPassword", !form.showPassword);
   return <main className="login-page">
     <section className="login-brand">
+      <button type="button" className="theme-toggle" onClick={toggleTheme}>
+        {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+        <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
+      </button>
       <div className="brand-mark">F</div>
       <span className="eyebrow">FireGuard AMC Manager</span>
-      <h1>Sign in to your maintenance workspace</h1>
-      <p>Choose the login type for Admin, Employer, or Customer access. Each role opens a different dashboard and permission set.</p>
-      <div className="login-access-list">{Object.entries(roleAccess).map(([key, item]) =>
-        <button type="button" key={key} className={form.role === key ? "active" : ""} onClick={() => chooseRole(key)}>
-          <ShieldCheck size={17} />
-          <span><strong>{item.label}</strong><small>{item.description}</small></span>
-        </button>
-      )}</div>
+      <h1>Access your maintenance portal</h1>
+      <p>Securely sign in to view your dashboard, AMC reports, service schedules, and support tools.</p>
     </section>
     <form className="login-card" onSubmit={submit}>
       <div className="login-icon"><LogIn /></div>
-      <h2>{form.role} Login</h2>
-      <p>Demo credentials are filled automatically when you choose a login type.</p>
+      <div className="login-card-header"><span className="eyebrow">Sign in</span><h2>Welcome back</h2><p>Use your account credentials to continue.</p></div>
       {loading && <div className="notice"><Gauge size={17} /> Connecting to PostgreSQL...</div>}
       {databaseError && <div className="notice database-error"><Bell size={17} /> Database: {databaseError}</div>}
       {error && <div className="form-alert"><span>{error}</span></div>}
-      <label><span>Login type</span><select value={form.role} onChange={(event) => chooseRole(event.target.value)}><option>Admin</option><option>Employer</option><option>Customer</option></select></label>
-      <label><span>Email</span><input type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} /></label>
-      <label><span>Password</span><input type="password" value={form.password} onChange={(event) => setForm({ ...form, password: event.target.value })} /></label>
-      <button className="primary" type="submit"><LogIn size={16} /> Sign In</button>
+      <label className={fieldErrors.role ? "error-field" : ""}>
+        <span>Login type</span>
+        <select value={form.role} onChange={(event) => updateField("role", event.target.value)}>
+          {Object.keys(roleAccess).map((key) => <option key={key} value={key}>{key}</option>)}
+        </select>
+      </label>
+      <label className={fieldErrors.email ? "error-field" : ""}>
+        <span>Email</span>
+        <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="you@example.com" />
+        {fieldErrors.email && <small>{fieldErrors.email}</small>}
+      </label>
+      <label className={fieldErrors.password ? "error-field" : ""}>
+        <span>Password</span>
+        <div className="password-row">
+          <input type={form.showPassword ? "text" : "password"} value={form.password} onChange={(event) => updateField("password", event.target.value)} placeholder="Enter your password" />
+          <button type="button" className="text-button small" onClick={toggleShowPassword}>{form.showPassword ? "Hide" : "Show"}</button>
+        </div>
+        {fieldErrors.password && <small>{fieldErrors.password}</small>}
+      </label>
+      <div className="login-meta">
+        <label className="checkbox-field"><input type="checkbox" checked={form.rememberMe} onChange={(event) => updateField("rememberMe", event.target.checked)} /><span>Remember me</span></label>
+        <button type="button" className="text-button forgot" onClick={() => window.alert("Please contact support to reset your password.")}>Forgot password?</button>
+      </div>
+      <button className="primary" type="submit" disabled={submitting || loading}>
+        {submitting ? <><Gauge size={16} className="spin" /> Signing in...</> : <><LogIn size={16} /> Sign In</>}
+      </button>
     </form>
   </main>;
 }
@@ -375,28 +481,86 @@ function Dashboard({ clients, services, visits, navigate, openReview, role, user
   </>;
 }
 
-function CustomerDashboard({ client, services, visits, onReport }) {
+function CustomerDashboard({ client, services, visits, onReport, onSupportAction }) {
   if (!client) return <div className="panel empty-customer"><UserRound /><h2>No customer record linked</h2><p>This customer login is not connected with an active client record yet.</p></div>;
   const serviceList = client.services?.length ? client.services : [client.service];
   const history = visits.filter((visit) => visit.clientId === client.id).sort((a, b) => b.date.localeCompare(a.date));
+  const recentReports = history.slice(0, 4);
+  const activeServices = services.filter((service) => serviceList.includes(service.name));
+  const supportEmail = "support@fireguard.com";
+  const requestService = () => {
+    onSupportAction("service", client.name);
+    window.location.href = `mailto:${supportEmail}?subject=FireGuard AMC service request for ${client.name}&body=Hello FireGuard team,%0D%0A%0D%0APlease arrange a service visit for ${client.name}.%0D%0A%0D%0AThanks.`;
+  };
+  const contactSupport = () => {
+    onSupportAction("support", client.name);
+    window.location.href = `mailto:${supportEmail}?subject=FireGuard support request for ${client.name}&body=Hello FireGuard team,%0D%0A%0D%0AI need support for ${client.name}.%0D%0A%0D%0AThanks.`;
+  };
+  const viewAndPrint = (visit) => {
+    onReport(client, visit);
+    setTimeout(() => window.print(), 500);
+  };
   return <>
-    <section className="welcome customer-welcome"><div><span className="eyebrow">Customer dashboard</span><h2>{client.name}</h2><p>{client.address}</p></div><div className="customer-next"><span>Next AMC</span><strong>{prettyDate(client.nextAmc)}</strong><AmcBadge date={client.nextAmc} /></div></section>
-    <section className="stats customer-stats">
-      <Stat label="Active Services" value={serviceList.length} note="Covered under AMC" icon={Wrench} />
-      <Stat label="AMC Reports" value={history.length} note="Completed service visits" icon={ClipboardCheck} />
-      <Stat label="AMC Type" value={client.amcType} note="Current contract" icon={CalendarDays} />
-      <Stat label="Contact" value={client.contact} note={client.phone} icon={UserRound} />
+    <section className="welcome customer-welcome">
+      <div>
+        <span className="eyebrow">Customer portal</span>
+        <h2>Welcome back, {client.contact || client.name}</h2>
+        <p>Review your AMC status, service history, and support options in one place.</p>
+      </div>
+      <div className="customer-next">
+        <span>Next scheduled AMC</span>
+        <strong>{prettyDate(client.nextAmc)}</strong>
+        <AmcBadge date={client.nextAmc} />
+      </div>
     </section>
-    <section className="dashboard-grid">
-      <Panel title="My Services" action="AMC status" onClick={() => {}}>
-        <div className="customer-service-list">{services.map((service) =>
-          <div key={service.id} className="customer-service"><Wrench size={17} /><div><strong>{service.name}</strong><span>{service.description}</span></div><Badge muted>{service.frequency}</Badge></div>
-        )}</div>
+    <section className="stats customer-stats">
+      <Stat label="Active services" value={activeServices.length} note="Included in your contract" icon={Wrench} />
+      <Stat label="Completed reports" value={history.length} note="Latest service history" icon={ClipboardCheck} />
+      <Stat label="AMC type" value={client.amcType} note="Current agreement" icon={CalendarDays} />
+      <Stat label="Next visit" value={prettyDate(client.nextAmc)} note={getAmcStatus(client.nextAmc).label} icon={Bell} />
+    </section>
+    <section className="customer-portal-grid">
+      <div className="panel customer-status-panel">
+        <div className="panel-head"><h3>Contract summary</h3><span>What your portal includes</span></div>
+        <div className="customer-summary-list">
+          <div><strong>{serviceList.length}</strong><span>Service packages covered</span></div>
+          <div><strong>{client.amcType}</strong><span>Renewal interval</span></div>
+          <div><strong>{client.contact}</strong><span>Primary contact</span></div>
+          <div><strong>{client.phone || "-"}</strong><span>Support phone</span></div>
+        </div>
+      </div>
+      <div className="panel customer-action-panel">
+        <div className="panel-head"><h3>Need help?</h3><span>Contact our support team directly</span></div>
+        <p className="customer-action-copy">If you want to request a new visit, report an issue, or ask about billing, use the buttons below.</p>
+        <div className="customer-action-group">
+          <button className="primary" onClick={requestService}>Request service</button>
+          <button className="outline" onClick={contactSupport}>Contact support</button>
+        </div>
+      </div>
+    </section>
+    <section className="dashboard-grid customer-dashboard-grid">
+      <Panel title="Your services" action="View details" onClick={() => {}}>
+        <div className="customer-service-list">
+          {activeServices.map((service) =>
+            <div key={service.id} className="customer-service"><Wrench size={17} /><div><strong>{service.name}</strong><span>{service.description}</span></div><Badge muted>{service.frequency}</Badge></div>
+          )}
+        </div>
       </Panel>
-      <Panel title="My AMC Reports" action={`${history.length} reports`} onClick={() => {}}>
-        {history.length ? history.map((visit) =>
-          <div className="history-row customer-report" key={visit.id}><div><strong>{prettyDate(visit.date)} - {visit.service}</strong><span>{visit.status} by {visit.engineer}</span><p>{visit.notes}</p></div><button className="outline small-btn" onClick={() => onReport(client, visit)}>View Report</button></div>
-        ) : <div className="empty">No completed AMC reports yet.</div>}
+      <Panel title="Recent AMC reports" action={`${history.length} completed`} onClick={() => {}}>
+        {recentReports.length ? <div className="customer-report-items">
+          {recentReports.map((visit) => (
+            <div key={visit.id} className="customer-report-row">
+              <div>
+                <strong>{prettyDate(visit.date)} - {visit.service}</strong>
+                <span>{visit.status} by {visit.engineer}</span>
+              </div>
+              <div className="customer-report-actions">
+                <button className="outline small-btn" onClick={() => onReport(client, visit)}>View</button>
+                <button className="outline small-btn" onClick={() => viewAndPrint(visit)}>Download</button>
+              </div>
+            </div>
+          ))}
+        </div> : <div className="empty">No completed AMC reports yet. Reports appear here after your first service visit.</div>}
       </Panel>
     </section>
   </>;
@@ -464,33 +628,35 @@ function CalendarPage({ clients, visits, query, services, setQuery, onReview }) 
   })}</div></>;
 }
 
-function EmployersPage({ users, visits, onAdd, onDelete }) {
+function EmployersPage({ users, visits, onAdd, onEdit, onViewCredentials, onDelete }) {
   const employers = users.filter((user) => user.role === "Employer");
   const completedFor = (name) => visits.filter((visit) => visit.status === "Completed" && visit.engineer.trim().toLowerCase() === name.trim().toLowerCase());
   return <div className="panel table-panel">
     <div className="list-head"><div><h2>Employer Logins</h2><p>{employers.length} employer accounts can sign in to read AMC work</p></div><button className="primary" onClick={onAdd}><Plus size={16} /> Add Employer</button></div>
     <DataTable heads={["Employer", "Phone", "Login Email", "Completed AMC", "Status", "Actions"]}>{employers.map((employer) => {
       const completed = completedFor(employer.name);
-      return <tr key={employer.id}><td><NameCell item={employer} /></td><td>{employer.phone || "-"}</td><td>{employer.email}</td><td><strong>{completed.length}</strong><span className="muted-line">{completed[0] ? `Latest: ${prettyDate(completed[0].date)}` : "No matching reports yet"}</span></td><td><Badge muted>{employer.status || "Active"}</Badge></td><td><button className="icon-button mini danger-action" onClick={() => onDelete(employer)}><Trash2 size={14} /></button></td></tr>;
+      return <tr key={employer.id}><td><NameCell item={employer} /></td><td>{employer.phone || "-"}</td><td>{employer.email}</td><td><strong>{completed.length}</strong><span className="muted-line">{completed[0] ? `Latest: ${prettyDate(completed[0].date)}` : "No matching reports yet"}</span></td><td><Badge muted>{employer.status || "Active"}</Badge></td><td><div className="row-actions"><button className="icon-button mini" onClick={() => onViewCredentials(employer)}><Eye size={14} /></button><button className="icon-button mini" onClick={() => onEdit(employer)}><Edit3 size={14} /></button><button className="icon-button mini danger-action" onClick={() => onDelete(employer)}><Trash2 size={14} /></button></div></td></tr>;
     })}</DataTable>
   </div>;
 }
 
-function EmployerForm({ users, onCancel, onSave }) {
-  const [form, setForm] = useState({ name: "", email: "", password: "", phone: "", initials: "", status: "Active" });
+function EmployerForm({ employer, users, onCancel, onSave }) {
+  const [form, setForm] = useState(employer ? { ...employer } : { name: "", email: "", password: "", phone: "", initials: "", status: "Active" });
   const [errors, setErrors] = useState([]);
   const change = (event) => setForm({ ...form, [event.target.name]: event.target.value });
   const submit = (event) => {
     event.preventDefault();
     const nextErrors = [];
-    const duplicate = users.some((user) => user.email.trim().toLowerCase() === form.email.trim().toLowerCase());
+    const duplicate = users.some((user) => user.id !== employer?.id && user.email.trim().toLowerCase() === form.email.trim().toLowerCase());
     if (duplicate) nextErrors.push("A login with this email already exists.");
     if (form.password.trim().length < 6) nextErrors.push("Password must be at least 6 characters.");
+    if (!form.name.trim()) nextErrors.push("Employer name is required.");
+    if (!form.email.trim()) nextErrors.push("Employer email is required.");
     setErrors(nextErrors);
-    if (!nextErrors.length) onSave({ ...form, initials: form.initials || initialsFor(form.name) });
+    if (!nextErrors.length) onSave({ ...form, initials: form.initials || initialsFor(form.name), role: "Employer" });
   };
-  return <FormShell narrow onSubmit={submit} errors={errors} onCancel={onCancel} label="Add Employer">
-    <section className="panel form-card"><SectionTitle number="01" title="Employer login" text="Create a read-only employer account" /><div className="form-grid"><Field label="Employer name" name="name" value={form.name} onChange={change} required /><Field label="Phone number" name="phone" value={form.phone} onChange={change} /><Field label="Login email" type="email" name="email" value={form.email} onChange={change} required /><Field label="Password" name="password" value={form.password} onChange={change} required /><Field label="Initials" name="initials" value={form.initials} onChange={change} /><Select label="Status" name="status" value={form.status} onChange={change} options={["Active", "Paused"]} /></div></section>
+  return <FormShell narrow onSubmit={submit} errors={errors} onCancel={onCancel} label={employer ? "Save Employer" : "Add Employer"}>
+    <section className="panel form-card"><SectionTitle number="01" title="Employer login" text={employer ? "Update this employer’s login details." : "Create a read-only employer account"} /><div className="form-grid"><Field label="Employer name" name="name" value={form.name} onChange={change} required /><Field label="Phone number" name="phone" value={form.phone} onChange={change} /><Field label="Login email" type="email" name="email" value={form.email} onChange={change} required /><Field label="Password" name="password" value={form.password} onChange={change} required /><Field label="Initials" name="initials" value={form.initials} onChange={change} /><Select label="Status" name="status" value={form.status} onChange={change} options={["Active", "Paused"]} /></div></section>
   </FormShell>;
 }
 
