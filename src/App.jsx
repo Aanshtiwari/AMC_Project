@@ -299,7 +299,7 @@ function App() {
     ? services.filter((service) => visibleClients.some((client) => (client.services?.length ? client.services : [client.service]).includes(service.name)))
     : services;
 
-  if (!currentUser) return <LoginPage loading={loading} databaseError={databaseError} onLogin={login} theme={theme} toggleTheme={toggleTheme} />;
+  if (!currentUser) return <LoginPage loading={loading} databaseError={databaseError} onLogin={login} />;
 
   const title = subPage ? subTitles[subPage] : pageMeta[page]?.[0] || pageMeta[defaultPageFor(currentUser)][0];
   const subtitle = subPage ? "Review report, save engineer notes, and download PDF" : pageMeta[page]?.[1] || pageMeta[defaultPageFor(currentUser)][1];
@@ -367,7 +367,7 @@ const subTitles = {
   addService: "Add Service", editService: "Edit Service", addEmployer: "Add Employer", editEmployer: "Edit Employer", amcReview: "AMC Service Review",
 };
 
-function LoginPage({ loading, databaseError, onLogin, theme, toggleTheme }) {
+function LoginPage({ loading, databaseError, onLogin }) {
   const [form, setForm] = useState({ role: "Admin", email: "", password: "", rememberMe: false, showPassword: false });
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
@@ -394,10 +394,6 @@ function LoginPage({ loading, databaseError, onLogin, theme, toggleTheme }) {
   const toggleShowPassword = () => updateField("showPassword", !form.showPassword);
   return <main className="login-page">
     <section className="login-brand">
-      <button type="button" className="theme-toggle" onClick={toggleTheme}>
-        {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
-        <span>{theme === "dark" ? "Light mode" : "Dark mode"}</span>
-      </button>
       <div className="brand-mark">F</div>
       <span className="eyebrow">FireGuard AMC Manager</span>
       <h1>Access your maintenance portal</h1>
