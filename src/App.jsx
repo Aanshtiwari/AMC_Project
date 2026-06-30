@@ -376,20 +376,16 @@ function LoginPage({ loading, databaseError, onLogin }) {
     Employer: "View reports, clients, schedules, and service information in read-only mode.",
     Customer: "Review your service dashboard, reports, and support options.",
   };
-  const sampleCredentials = {
-    Admin: { email: "admin@fireguard.local", password: "admin123" },
-    Employer: { email: "employer@fireguard.local", password: "employer123" },
-    Customer: { email: "customer@fireguard.local", password: "customer123" },
-  };
+  
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
   const updateRole = (role) => {
-    setForm((current) => ({
-      ...current,
-      role,
-      email: current.email || sampleCredentials[role].email,
-      password: current.password || sampleCredentials[role].password,
-    }));
-  };
+  setForm((current) => ({
+    ...current,
+    role,
+    email: "",
+    password: "",
+  }));
+};
   const validateForm = () => {
     const nextErrors = {};
     const emailValue = form.email.trim();
