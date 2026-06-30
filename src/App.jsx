@@ -430,15 +430,7 @@ function LoginPage({ loading, databaseError, onLogin }) {
           {Object.keys(roleAccess).map((key) => <option key={key} value={key}>{key}</option>)}
         </select>
       </label>
-      <div className="credential-help">
-        <p><strong>Demo credentials</strong></p>
-        <ul>
-          <li>Admin: admin@fireguard.local / admin123</li>
-          <li>Employer: employer@fireguard.local / employer123</li>
-          <li>Customer: customer@fireguard.local / customer123</li>
-        </ul>
-        <p className="help-note">{roleHelp[form.role]}</p>
-      </div>
+      
       <label className={fieldErrors.email ? "error-field" : ""}>
         <span>Email</span>
         <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="you@example.com" />
