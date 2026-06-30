@@ -73,11 +73,9 @@ function App() {
   const [users, setUsers] = useState([]);
   const [notifications, setNotifications] = useState([]);
   const [theme, setTheme] = useState(() => {
-    if (typeof window === "undefined") return "light";
     const saved = localStorage.getItem("fireguard-theme");
-    if (saved === "dark" || saved === "light") return saved;
-    return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
-  });
+    return saved === "dark" ? "dark" : "light";
+});
   const [showNotifications, setShowNotifications] = useState(false);
   const [loading, setLoading] = useState(true);
   const [databaseError, setDatabaseError] = useState("");
