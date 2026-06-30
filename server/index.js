@@ -1,11 +1,13 @@
 import "dotenv/config";
 import express from "express";
+import cors from "cors";
 import { initializeDatabase, mapClient, mapService, mapUser, mapVisit, pool, seedDatabase } from "./db.js";
 
 const app = express();
 const port = Number(process.env.PORT || 3001);
 
 app.use(express.json({ limit: "5mb" }));
+app.use(cors());
 
 const clientFields = (item) => [
   item.name, item.contact, item.phone, item.email, item.address, item.city || "",
