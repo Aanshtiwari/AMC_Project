@@ -9,6 +9,8 @@ import { api } from "./api";
 import { calculateNextAMC, exportAMCList, exportBackup, getAmcStatus, prettyDate, serviceUsage, today, validateClient } from "./utils";
 import { getReportTemplate, reportStyles } from "./reportFormats";
 
+const reportAssetUrl = (filename) => `${(import.meta.env.BASE_URL || "/").replace(/\/$/, "")}/report-assets/${filename}`;
+
 const navItems = [
   ["dashboard", "Dashboard", LayoutDashboard],
   ["clients", "Clients", Users],
@@ -30,9 +32,10 @@ const roleAccess = {
   },
   Employer: {
     label: "Employer",
-    description: "Can view AMC reports, client list, service catalogue, and schedules. Backup is hidden.",
+    description: "Can view AMC reports, client list, service catalogue, schedules, and save completed AMC report data. Backup is hidden.",
     nav: ["dashboard", "clients", "services", "amc", "calendar"],
     canEdit: false,
+    canSaveReports: true,
     canBackup: false,
     clientScope: "all",
   },
@@ -160,6 +163,7 @@ function App() {
   };
 
   const canEdit = access.canEdit;
+  const canSaveReports = access.canSaveReports;
   const openSub = (next, item = null) => { setSubPage(next); setSelected(item); };
   const closeSub = () => { setSubPage(null); setSelected(null); };
   const handleSupportAction = (type, clientName) => {
@@ -246,10 +250,6 @@ function App() {
     openSub("editEmployer", employer);
   };
 
-  const viewEmployerCredentials = (employer) => {
-    window.alert(`Employer ID: ${employer.id}\nEmail: ${employer.email}\nPassword: ${employer.password}`);
-  };
-
   const deleteService = async (service) => {
     if (!canEdit) return;
     if (clients.some((client) => (client.services?.length ? client.services : [client.service]).includes(service.name))) return window.alert("This service is assigned to clients.");
@@ -261,14 +261,14 @@ function App() {
   };
 
   const completeVisit = async (client, form, report = null) => {
-    if (!canEdit) return;
+    if (!canSaveReports) return;
     const nextDate = form.nextDate || calculateNextAMC(client.nextAmc, client.amcType);
     const payload = {
       clientId: client.id,
       date: form.date,
       service: form.service || client.service,
       status: form.status,
-      engineer: form.engineer,
+      engineer: form.engineer || currentUser?.name || "Assigned Engineer",
       notes: form.notes,
       nextDate,
       amcBy: form.amcBy || client.amcBy || amcByOptions[0],
@@ -348,14 +348,15 @@ function App() {
         {subPage === "editService" && <ServiceForm service={selected} services={services} onCancel={closeSub} onSave={saveService} />}
         {subPage === "addEmployer" && <EmployerForm users={users} onCancel={closeSub} onSave={saveEmployer} />}
         {subPage === "editEmployer" && <EmployerForm employer={selected} users={users} onCancel={closeSub} onSave={saveEmployer} />}
-        {subPage === "amcReview" && <AMCReview client={selected?.client || selected} report={selected?.visit || null} visits={visits} canEdit={canEdit} onBack={closeSub} onSave={completeVisit} />}
+        {subPage === "employerProfile" && <EmployerProfile employer={selected} onBack={closeSub} onEdit={(item) => openSub("editEmployer", item)} canEdit={canEdit} />}
+        {subPage === "amcReview" && <AMCReview client={selected?.client || selected} report={selected?.visit || null} visits={visits} canEdit={canSaveReports} currentUser={currentUser} onBack={closeSub} onSave={completeVisit} />}
         {!subPage && page === "dashboard" && <Dashboard clients={visibleClients} services={visibleServices} visits={visibleVisits} navigate={navigate} openReview={(item) => openSub("amcReview", { client: item, visit: null })} role={role} user={currentUser} />}
         {!subPage && page === "customerDashboard" && <CustomerDashboard client={visibleClients[0]} services={visibleServices} visits={visibleVisits} onReport={(client, visit) => openSub("amcReview", { client, visit })} onSupportAction={handleSupportAction} />}
         {!subPage && page === "clients" && <ClientsPage clients={visibleClients} visits={visibleVisits} query={query} canEdit={canEdit} onAdd={() => openSub("addClient")} onView={(item) => openSub("clientProfile", item)} onEdit={(item) => openSub("editClient", item)} onDelete={deleteClient} />}
         {!subPage && page === "services" && <ServicesPage services={visibleServices} clients={visibleClients} query={query} canEdit={canEdit} onAdd={() => openSub("addService")} onEdit={(item) => openSub("editService", item)} onDelete={deleteService} />}
         {!subPage && page === "amc" && <AMCPage clients={visibleClients} query={query} services={visibleServices} onReview={(item) => openSub("amcReview", { client: item, visit: null })} />}
         {!subPage && page === "calendar" && <CalendarPage clients={visibleClients} visits={visibleVisits} query={query} services={visibleServices} setQuery={setQuery} onReview={(item, visit = null) => openSub("amcReview", { client: item, visit })} />}
-        {!subPage && page === "employers" && role === "Admin" && <EmployersPage users={users} visits={visits} onAdd={() => openSub("addEmployer")} onEdit={editEmployer} onViewCredentials={viewEmployerCredentials} onDelete={deleteEmployer} />}
+        {!subPage && page === "employers" && role === "Admin" && <EmployersPage users={users} visits={visits} onAdd={() => openSub("addEmployer")} onView={(item) => openSub("employerProfile", item)} onEdit={editEmployer} onDelete={deleteEmployer} />}
         {!subPage && page === "settings" && access.canBackup && <SettingsPage clients={clients} services={services} visits={visits} users={users} role={role} onRestore={restoreBackup} />}
       </div>
     </main>
@@ -372,7 +373,25 @@ function LoginPage({ loading, databaseError, onLogin }) {
   const [error, setError] = useState("");
   const [fieldErrors, setFieldErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
+  const roleHelp = {
+    Admin: "Full access to clients, services, AMC reports, calendar, and backup tools.",
+    Employer: "View reports, clients, schedules, and service information in read-only mode.",
+    Customer: "Review your service dashboard, reports, and support options.",
+  };
+  const sampleCredentials = {
+    Admin: { email: "admin@fireguard.local", password: "admin123" },
+    Employer: { email: "employer@fireguard.local", password: "employer123" },
+    Customer: { email: "customer@fireguard.local", password: "customer123" },
+  };
   const updateField = (name, value) => setForm((current) => ({ ...current, [name]: value }));
+  const updateRole = (role) => {
+    setForm((current) => ({
+      ...current,
+      role,
+      email: current.email || sampleCredentials[role].email,
+      password: current.password || sampleCredentials[role].password,
+    }));
+  };
   const validateForm = () => {
     const nextErrors = {};
     const emailValue = form.email.trim();
@@ -407,10 +426,19 @@ function LoginPage({ loading, databaseError, onLogin }) {
       {error && <div className="form-alert"><span>{error}</span></div>}
       <label className={fieldErrors.role ? "error-field" : ""}>
         <span>Login type</span>
-        <select value={form.role} onChange={(event) => updateField("role", event.target.value)}>
+        <select value={form.role} onChange={(event) => updateRole(event.target.value)}>
           {Object.keys(roleAccess).map((key) => <option key={key} value={key}>{key}</option>)}
         </select>
       </label>
+      <div className="credential-help">
+        <p><strong>Demo credentials</strong></p>
+        <ul>
+          <li>Admin: admin@fireguard.local / admin123</li>
+          <li>Employer: employer@fireguard.local / employer123</li>
+          <li>Customer: customer@fireguard.local / customer123</li>
+        </ul>
+        <p className="help-note">{roleHelp[form.role]}</p>
+      </div>
       <label className={fieldErrors.email ? "error-field" : ""}>
         <span>Email</span>
         <input type="email" value={form.email} onChange={(event) => updateField("email", event.target.value)} placeholder="you@example.com" />
@@ -624,20 +652,39 @@ function CalendarPage({ clients, visits, query, services, setQuery, onReview }) 
   })}</div></>;
 }
 
-function EmployersPage({ users, visits, onAdd, onEdit, onViewCredentials, onDelete }) {
+function EmployersPage({ users, visits, onAdd, onView, onEdit, onDelete }) {
   const employers = users.filter((user) => user.role === "Employer");
   const completedFor = (name) => visits.filter((visit) => visit.status === "Completed" && visit.engineer.trim().toLowerCase() === name.trim().toLowerCase());
   return <div className="panel table-panel">
-    <div className="list-head"><div><h2>Employer Logins</h2><p>{employers.length} employer accounts can sign in to read AMC work</p></div><button className="primary" onClick={onAdd}><Plus size={16} /> Add Employer</button></div>
+    <div className="list-head"><div><h2>Employer Logins</h2><p>{employers.length} employer accounts can sign in to read AMC work</p></div><button className="primary" onClick={onAdd}><Plus size={16} /> Add Employee</button></div>
     <DataTable heads={["Employer", "Phone", "Login Email", "Completed AMC", "Status", "Actions"]}>{employers.map((employer) => {
       const completed = completedFor(employer.name);
-      return <tr key={employer.id}><td><NameCell item={employer} /></td><td>{employer.phone || "-"}</td><td>{employer.email}</td><td><strong>{completed.length}</strong><span className="muted-line">{completed[0] ? `Latest: ${prettyDate(completed[0].date)}` : "No matching reports yet"}</span></td><td><Badge muted>{employer.status || "Active"}</Badge></td><td><div className="row-actions"><button className="icon-button mini" onClick={() => onViewCredentials(employer)}><Eye size={14} /></button><button className="icon-button mini" onClick={() => onEdit(employer)}><Edit3 size={14} /></button><button className="icon-button mini danger-action" onClick={() => onDelete(employer)}><Trash2 size={14} /></button></div></td></tr>;
+      return <tr key={employer.id}><td><NameCell item={employer} /></td><td>{employer.phone || "-"}</td><td>{employer.email}</td><td><strong>{completed.length}</strong><span className="muted-line">{completed[0] ? `Latest: ${prettyDate(completed[0].date)}` : "No matching reports yet"}</span></td><td><Badge muted>{employer.status || "Active"}</Badge></td><td><div className="row-actions"><button className="outline small-btn" onClick={() => onView(employer)}>View</button><button className="icon-button mini" onClick={() => onEdit(employer)}><Edit3 size={14} /></button><button className="icon-button mini danger-action" onClick={() => onDelete(employer)}><Trash2 size={14} /></button></div></td></tr>;
     })}</DataTable>
   </div>;
 }
 
 function EmployerForm({ employer, users, onCancel, onSave }) {
-  const [form, setForm] = useState(employer ? { ...employer } : { name: "", email: "", password: "", phone: "", initials: "", status: "Active" });
+  const [form, setForm] = useState(employer ? {
+    ...employer,
+    address: employer.address || "",
+    fatherName: employer.fatherName || "",
+    motherName: employer.motherName || "",
+    marriageStatus: employer.marriageStatus || "Single",
+    generalInformation: employer.generalInformation || "",
+  } : {
+    name: "",
+    email: "",
+    password: "",
+    phone: "",
+    address: "",
+    fatherName: "",
+    motherName: "",
+    marriageStatus: "Single",
+    generalInformation: "",
+    initials: "",
+    status: "Active",
+  });
   const [errors, setErrors] = useState([]);
   const change = (event) => setForm({ ...form, [event.target.name]: event.target.value });
   const submit = (event) => {
@@ -651,9 +698,14 @@ function EmployerForm({ employer, users, onCancel, onSave }) {
     setErrors(nextErrors);
     if (!nextErrors.length) onSave({ ...form, initials: form.initials || initialsFor(form.name), role: "Employer" });
   };
-  return <FormShell narrow onSubmit={submit} errors={errors} onCancel={onCancel} label={employer ? "Save Employer" : "Add Employer"}>
-    <section className="panel form-card"><SectionTitle number="01" title="Employer login" text={employer ? "Update this employer’s login details." : "Create a read-only employer account"} /><div className="form-grid"><Field label="Employer name" name="name" value={form.name} onChange={change} required /><Field label="Phone number" name="phone" value={form.phone} onChange={change} /><Field label="Login email" type="email" name="email" value={form.email} onChange={change} required /><Field label="Password" name="password" value={form.password} onChange={change} required /><Field label="Initials" name="initials" value={form.initials} onChange={change} /><Select label="Status" name="status" value={form.status} onChange={change} options={["Active", "Paused"]} /></div></section>
+  return <FormShell narrow onSubmit={submit} errors={errors} onCancel={onCancel} label={employer ? "Save Employee" : "Add Employee"}>
+    <section className="panel form-card"><SectionTitle number="01" title="Account details" text={employer ? "Update this employee’s account login details." : "Create a read-only employee account"} /><div className="form-grid"><Field label="Full name" name="name" value={form.name} onChange={change} required /><Field label="Phone number" name="phone" value={form.phone} onChange={change} /><Field label="Address" name="address" value={form.address} onChange={change} /><Field label="Login email" type="email" name="email" value={form.email} onChange={change} required /><Field label="Password" name="password" value={form.password} onChange={change} required /><Field label="Initials" name="initials" value={form.initials} onChange={change} /><Select label="Status" name="status" value={form.status} onChange={change} options={["Active", "Paused"]} /></div></section>
+    <section className="panel form-card"><SectionTitle number="02" title="Personal information" text="Family and personal details for the employee profile" /><div className="form-grid"><Field label="Father name" name="fatherName" value={form.fatherName} onChange={change} /><Field label="Mother name" name="motherName" value={form.motherName} onChange={change} /><Select label="Marriage status" name="marriageStatus" value={form.marriageStatus} onChange={change} options={["Single", "Married", "Divorced", "Widowed", "Prefer not to say"]} /><Field wide textarea label="General information" name="generalInformation" value={form.generalInformation} onChange={change} /></div></section>
   </FormShell>;
+}
+
+function EmployerProfile({ employer, onBack, onEdit, canEdit }) {
+  return <><div className="review-actions"><button className="back-button" onClick={onBack}>Back</button><div>{canEdit && <button className="outline" onClick={() => onEdit(employer)}><Edit3 size={16} /> Edit</button>}</div></div><div className="profile-grid"><section className="panel profile-main"><div className="profile-hero"><div className="profile-logo">{employer.name?.[0] || "E"}</div><div><h2>{employer.name}</h2><p>{employer.address || "No address provided"}</p></div></div><div className="detail-grid"><Detail label="Employee ID" value={employer.id} /><Detail label="Phone" value={employer.phone || "-"} /><Detail label="Email" value={employer.email} /><Detail label="Password" value={employer.password || "-"} /><Detail label="Father name" value={employer.fatherName || "-"} /><Detail label="Mother name" value={employer.motherName || "-"} /><Detail label="Marriage status" value={employer.marriageStatus || "-"} /><Detail label="Status" value={employer.status || "Active"} /></div></section><section className="panel contract-card"><span className="eyebrow">General information</span><h2>Employee profile</h2><p>{employer.generalInformation || "No general information has been added yet."}</p></section></div></>;
 }
 
 function SettingsPage({ clients, services, visits, users, role, onRestore }) {
@@ -723,7 +775,7 @@ function ServiceForm({ service, services, onCancel, onSave }) {
   return <FormShell narrow onSubmit={submit} errors={errors} onCancel={onCancel} label={service ? "Save Changes" : "Add Service"}><section className="panel form-card"><SectionTitle number="01" title="Service details" text="Catalogue and frequency" /><div className="form-grid"><Field label="Service name" name="name" value={form.name} onChange={change} required /><Select label="Category" name="category" value={form.category} onChange={change} options={["Fire Safety", "Security & Communication", "Other"]} /><Select label="Default AMC frequency" name="frequency" value={form.frequency} onChange={change} options={["Monthly", "Quarterly", "Half-yearly", "Annual"]} /><Select label="Status" name="status" value={form.status} onChange={change} options={["Active", "Paused"]} /><Field wide textarea label="Service description" name="description" value={form.description} onChange={change} /></div></section></FormShell>;
 }
 
-function AMCReview({ client, report, visits, canEdit, onBack, onSave }) {
+function AMCReview({ client, report, visits, canEdit, currentUser, onBack, onSave }) {
   const latest = visits.filter((visit) => visit.clientId === client.id).sort((a, b) => b.date.localeCompare(a.date))[0];
   const activeReport = report || null;
   const [editingReport, setEditingReport] = useState(!activeReport);
@@ -732,7 +784,7 @@ function AMCReview({ client, report, visits, canEdit, onBack, onSave }) {
     status: activeReport?.status || "Completed",
     date: activeReport?.date || today(),
     service: activeReport?.service || client.service,
-    engineer: activeReport?.engineer || latest?.engineer || "Assigned Engineer",
+    engineer: activeReport?.engineer || (currentUser?.role === "Employer" ? currentUser.name : latest?.engineer) || "Assigned Engineer",
     notes: activeReport?.notes || latest?.notes || "",
     nextDate: activeReport?.nextDate || calculateNextAMC(client.nextAmc, client.amcType),
     amcBy: activeReport?.amcBy || client.amcBy || amcByOptions[0],
@@ -789,7 +841,7 @@ function ExcelReport({ client, report, showSignature }) {
             >
               <span className="workbook-cell-text">{fillWorkbookCell(cell, row, client, report)}</span>
               {hasLogo && <OwnerLogo infra={ownerIsInfra} />}
-              {hasStamp && showSignature && <img className="signature-stamp" src="/report-assets/image2.png" alt="Authorized signature" />}
+              {hasStamp && showSignature && <img className="signature-stamp" src={reportAssetUrl("image2.png")} alt="Authorized signature" />}
             </td>;
           })}
         </tr>
@@ -800,7 +852,7 @@ function ExcelReport({ client, report, showSignature }) {
 
 function OwnerLogo({ infra }) {
   if (infra) return <div className="owner-dummy-logo">SI</div>;
-  return <img className="owner-logo" src="/report-assets/image1.jpeg" alt="Securite Technologies" />;
+  return <img className="owner-logo" src={reportAssetUrl("image1.jpeg")} alt="Securite Technologies" />;
 }
 
 function workbookCellStyle(cell, scale) {

@@ -31,6 +31,11 @@ const userFields = (item) => [
   item.password,
   item.initials || initialsFor(item.name),
   item.phone || "",
+  item.address || "",
+  item.fatherName || "",
+  item.motherName || "",
+  item.marriageStatus || "Single",
+  item.generalInformation || "",
   item.status || "Active",
 ];
 
@@ -99,8 +104,8 @@ app.post("/api/users", async (req, res, next) => {
       return res.status(400).json({ error: "Name, email, and password are required." });
     }
     const result = await pool.query(
-      `INSERT INTO app_users (role, name, email, password, initials, phone, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO app_users (role, name, email, password, initials, phone, address, father_name, mother_name, marriage_status, general_information, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        RETURNING *`,
       userFields(req.body),
     );
@@ -117,9 +122,9 @@ app.put("/api/users/:id", async (req, res, next) => {
       return res.status(400).json({ error: "Name, email, and password are required." });
     }
     const result = await pool.query(
-      `UPDATE app_users SET name=$1, email=$2, password=$3, initials=$4, phone=$5, status=$6
-       WHERE id=$7 AND role='Employer' RETURNING *`,
-      [req.body.name, req.body.email, req.body.password, req.body.initials || initialsFor(req.body.name), req.body.phone || "", req.body.status || "Active", req.params.id],
+      `UPDATE app_users SET name=$1, email=$2, password=$3, initials=$4, phone=$5, address=$6, father_name=$7, mother_name=$8, marriage_status=$9, general_information=$10, status=$11
+       WHERE id=$12 AND role='Employer' RETURNING *`,
+      [req.body.name, req.body.email, req.body.password, req.body.initials || initialsFor(req.body.name), req.body.phone || "", req.body.address || "", req.body.fatherName || "", req.body.motherName || "", req.body.marriageStatus || "Single", req.body.generalInformation || "", req.body.status || "Active", req.params.id],
     );
     if (!result.rowCount) return res.status(404).json({ error: "Employer not found or cannot be updated." });
     res.json(mapUser(result.rows[0]));
@@ -250,8 +255,8 @@ app.post("/api/restore", async (req, res, next) => {
     }
     for (const user of users) {
       await db.query(
-        `INSERT INTO app_users (id, role, name, email, password, initials, phone, status)
-         VALUES ($1, ${Array.from({ length: 7 }, (_, i) => `$${i + 2}`).join(", ")})`,
+        `INSERT INTO app_users (id, role, name, email, password, initials, phone, address, father_name, mother_name, marriage_status, general_information, status)
+         VALUES ($1, ${Array.from({ length: 12 }, (_, i) => `$${i + 2}`).join(", ")})`,
         [user.id, ...userFields(user)],
       );
     }

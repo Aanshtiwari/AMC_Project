@@ -63,6 +63,11 @@ const schema = `
     password TEXT NOT NULL,
     initials TEXT NOT NULL DEFAULT '',
     phone TEXT NOT NULL DEFAULT '',
+    address TEXT NOT NULL DEFAULT '',
+    father_name TEXT NOT NULL DEFAULT '',
+    mother_name TEXT NOT NULL DEFAULT '',
+    marriage_status TEXT NOT NULL DEFAULT 'Single',
+    general_information TEXT NOT NULL DEFAULT '',
     status TEXT NOT NULL DEFAULT 'Active',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
   );
@@ -75,6 +80,11 @@ const schema = `
   ALTER TABLE visits ADD COLUMN IF NOT EXISTS amc_by TEXT NOT NULL DEFAULT 'Secuite Technologies';
   ALTER TABLE visits ADD COLUMN IF NOT EXISTS scheduled_date DATE;
   ALTER TABLE visits ADD COLUMN IF NOT EXISTS report_data JSONB NOT NULL DEFAULT '{}'::jsonb;
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS address TEXT NOT NULL DEFAULT '';
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS father_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS mother_name TEXT NOT NULL DEFAULT '';
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS marriage_status TEXT NOT NULL DEFAULT 'Single';
+  ALTER TABLE app_users ADD COLUMN IF NOT EXISTS general_information TEXT NOT NULL DEFAULT '';
   UPDATE clients SET required_services = ARRAY[service] WHERE required_services = '{}';
   UPDATE clients SET portal_email = email WHERE portal_email = '';
   UPDATE clients SET portal_password = lower(regexp_replace(name, '[^a-zA-Z0-9]+', '', 'g')) || '123' WHERE portal_password = '';
@@ -121,10 +131,10 @@ export async function seedDatabase(client) {
   }
   for (const user of initialUsers) {
     await client.query(
-      `INSERT INTO app_users (id, role, name, email, password, initials, phone, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      `INSERT INTO app_users (id, role, name, email, password, initials, phone, address, father_name, mother_name, marriage_status, general_information, status)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (email) DO NOTHING`,
-      [user.id, user.role, user.name, user.email, user.password, user.initials, user.phone || "", user.status || "Active"],
+      [user.id, user.role, user.name, user.email, user.password, user.initials, user.phone || "", user.address || "", user.fatherName || "", user.motherName || "", user.marriageStatus || "Single", user.generalInformation || "", user.status || "Active"],
     );
   }
   for (const visit of initialVisits) {
@@ -186,6 +196,11 @@ export const mapUser = (row) => ({
   password: row.password,
   initials: row.initials || initialsFor(row.name),
   phone: row.phone || "",
+  address: row.address || "",
+  fatherName: row.father_name || "",
+  motherName: row.mother_name || "",
+  marriageStatus: row.marriage_status || "Single",
+  generalInformation: row.general_information || "",
   status: row.status || "Active",
   createdAt: row.created_at,
 });
